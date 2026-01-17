@@ -55,12 +55,6 @@ if (-not (Test-Path "C:\Program Files\Android\Android Studio\bin\studio64.exe"))
 $AndroidStudioPath = "C:\Program Files\Android\Android Studio"
 $JavaHome = Join-Path $AndroidStudioPath "jbr"
 
-if (-not (Test-Path $JavaHome)) {
-    Write-Host "[INFO] Please complete Android Studio first-run setup. Then re-run this script." -ForegroundColor Yellow
-    Start-Process "$AndroidStudioPath\bin\studio64.exe"
-    exit 0
-}
-
 # Set JAVA_HOME and update PATH for current session
 $env:JAVA_HOME = $JavaHome
 $env:Path = "$JavaHome\bin;$env:Path"
@@ -121,7 +115,7 @@ $env:Path = "$FlutterHome\bin;$env:Path"
 
 # ---------------- Accept licenses ----------------
 Log "Accepting all Android licenses..."
-yes | flutter doctor --android-licenses
+1..20 | ForEach-Object { echo y } | flutter doctor --android-licenses
 
 # ---------------- Flutter config ----------------
 flutter config --android-sdk $AndroidSdkRoot
