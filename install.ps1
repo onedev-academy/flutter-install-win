@@ -43,12 +43,22 @@ if (-not ($env:Path -like "*$GitPath*")) {
     $env:Path += ";$GitPath"
 }
 
+# ---------------- Install Android Studio ----------------
+if (-not (Test-Path "C:\Program Files\Android\Android Studio\bin\studio64.exe")) {
+    Log "Installing Android Studio via Chocolatey..."
+    choco install androidstudio -y
+} else {
+    Log "Android Studio already installed."
+}
+
 # ---------------- Set JAVA_HOME from Android Studio JDK ----------------
 $AndroidStudioPath = "C:\Program Files\Android\Android Studio"
 $JavaHome = Join-Path $AndroidStudioPath "jbr"
 
 if (-not (Test-Path $JavaHome)) {
-    Err "Android Studio JDK not found. Please install Android Studio first."
+    Write-Host "[INFO] Please complete Android Studio first-run setup. Then re-run this script." -ForegroundColor Yellow
+    Start-Process "$AndroidStudioPath\bin\studio64.exe"
+    exit 0
 }
 
 # Set JAVA_HOME and update PATH for current session
@@ -57,28 +67,10 @@ $env:Path = "$JavaHome\bin;$env:Path"
 
 # Optionally set system-wide environment variables
 [Environment]::SetEnvironmentVariable("JAVA_HOME", $JavaHome, "Machine")
-[Environment]::SetEnvironmentVariable("Path", "$env:Path", "Machine")
+[Environment]::SetEnvironmentVariable("ANDROID_SDK_ROOT", $AndroidSdkRoot, "Machine")
+[Environment]::SetEnvironmentVariable("ANDROID_HOME", $AndroidSdkRoot, "Machine")
 
 Write-Host "[INFO] JAVA_HOME set to $JavaHome"
-
-# ---------------- Install Flutter SDK ----------------
-if (-not (Test-Path "$FlutterHome\bin\flutter.bat")) {
-    Log "Installing Flutter SDK..."
-    git clone https://github.com/flutter/flutter.git -b stable $FlutterHome
-} else {
-    Log "Flutter already installed at $FlutterHome"
-}
-
-# Add Flutter to PATH (current session)
-$env:Path = "$FlutterHome\bin;$env:Path"
-
-# ---------------- Install Android Studio ----------------
-if (-not (Test-Path "C:\Program Files\Android\Android Studio\bin\studio64.exe")) {
-    Log "Installing Android Studio via Chocolatey..."
-    choco install androidstudio -y
-} else {
-    Log "Android Studio already installed."
-}
 
 # ---------------- Install Android SDK command-line tools ----------------
 if (-not (Test-Path $CmdlineTools)) {
@@ -116,10 +108,20 @@ $LatestBuildTools = & sdkmanager --list | Select-String -Pattern 'build-tools;([
 Log "Installing platform-tools, $($LatestPlatform.Text), $($LatestBuildTools.Text)..."
 & sdkmanager "platform-tools" $LatestPlatform.Text $LatestBuildTools.Text
 
+# ---------------- Install Flutter SDK ----------------
+if (-not (Test-Path "$FlutterHome\bin\flutter.bat")) {
+    Log "Installing Flutter SDK..."
+    git clone https://github.com/flutter/flutter.git -b stable $FlutterHome
+} else {
+    Log "Flutter already installed at $FlutterHome"
+}
+
+# Add Flutter to PATH (current session)
+$env:Path = "$FlutterHome\bin;$env:Path"
 
 # ---------------- Accept licenses ----------------
 Log "Accepting all Android licenses..."
-1..20 | ForEach-Object { echo y } | flutter doctor --android-licenses
+yes | flutter doctor --android-licenses
 
 # ---------------- Flutter config ----------------
 flutter config --android-sdk $AndroidSdkRoot
