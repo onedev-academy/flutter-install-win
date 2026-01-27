@@ -77,15 +77,16 @@ $env:Path =
     [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" +
     [System.Environment]::GetEnvironmentVariable("Path","User")
 
-$JavaHome = Get-ChildItem "C:\Program Files\Eclipse Adoptium" -Directory |
-    Where-Object { $_.Name -like "jdk-17*" } |
+$JavaFolder = Get-ChildItem "C:\Program Files\Eclipse Adoptium" -Directory |
+    Where-Object { $_.Name -match '^jdk-17.*' } |
     Sort-Object Name -Descending |
-    Select-Object -First 1 |
-    Select-Object -ExpandProperty FullName
+    Select-Object -First 1
 
-if (-not $JavaHome) {
-    Err "JDK 17 not found under Eclipse Adoptium"
+if (-not $JavaFolder) {
+    Err "JDK 17 not found under Eclipse Adoptium. Check if Temurin17 installed correctly."
 }
+
+$JavaHome = $JavaFolder.FullName
 
 # Set JAVA_HOME for current session
 $env:JAVA_HOME = $JavaHome
