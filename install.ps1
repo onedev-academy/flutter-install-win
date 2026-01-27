@@ -138,16 +138,23 @@ Log "Installing platform-tools, $($LatestPlatform.Text), $($LatestBuildTools.Tex
 # ---------------- Install Flutter SDK ----------------
 $GitExe = (Get-Command git.exe -ErrorAction SilentlyContinue)?.Source
 if (-not $GitExe) {
+    # fallback if Git not in PATH
     $GitExe = "C:\Program Files\Git\cmd\git.exe"
 }
 
-# Clone Flutter
-& $GitExe clone https://github.com/flutter/flutter.git -b stable $FlutterHome
+if (-not (Test-Path "$FlutterHome\bin\flutter.bat")) {
+    Log "Installing Flutter SDK..."
+    & $GitExe clone https://github.com/flutter/flutter.git -b stable $FlutterHome
+} else {
+    Log "Flutter already installed at $FlutterHome"
+}
 
-# Full path to flutter.bat
+# Add Flutter to PATH for this session
 $FlutterExe = Join-Path $FlutterHome "bin\flutter.bat"
+$env:Path = "$FlutterHome\bin;$env:Path"
 
 # Accept Android licenses
+Log "Accepting all Android licenses..."
 1..20 | ForEach-Object { "y" } | & $FlutterExe doctor --android-licenses
 
 # Flutter config
