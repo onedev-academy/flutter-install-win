@@ -3,6 +3,15 @@
 Auto Flutter + Android Install Script for Windows
 #>
 
+# ---------------- Admin check (must be first) ----------------
+function Err($msg) { Write-Host "[ERR] $msg" -ForegroundColor Red; exit 1 }
+
+if (-not ([Security.Principal.WindowsPrincipal] `
+    [Security.Principal.WindowsIdentity]::GetCurrent()
+).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    Err "Please run this script as Administrator."
+}
+
 # ---------------- Helpers ----------------
 function Log($msg) { Write-Host "[INFO] $msg" -ForegroundColor Cyan }
 function Warn($msg) { Write-Host "[WARN] $msg" -ForegroundColor Yellow }
@@ -59,21 +68,23 @@ if (-not (Test-Path "C:\Program Files\Android\Android Studio\bin\studio64.exe"))
 }
 
 # ---------------- Set JAVA_HOME from Android Studio JDK ----------------
-choco install temurin17 -y
-Refresh-Path
-
 Write-Host "[INFO] Installing JDK 17..."
 choco install temurin17 -y
+Refresh-Path
 
 # Refresh PATH so java is visible immediately
 $env:Path =
     [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" +
     [System.Environment]::GetEnvironmentVariable("Path","User")
 
-$JavaHome = "C:\Program Files\Eclipse Adoptium\jdk-17"
+$JavaHome = Get-ChildItem "C:\Program Files\Eclipse Adoptium" -Directory |
+    Where-Object { $_.Name -like "jdk-17*" } |
+    Sort-Object Name -Descending |
+    Select-Object -First 1 |
+    Select-Object -ExpandProperty FullName
 
-if (-not (Test-Path $JavaHome)) {
-    throw "JDK not found at $JavaHome"
+if (-not $JavaHome) {
+    Err "JDK 17 not found under Eclipse Adoptium"
 }
 
 # Set JAVA_HOME for current session
