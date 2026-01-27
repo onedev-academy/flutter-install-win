@@ -15,6 +15,12 @@ function Require-Command($cmd) {
     }
 }
 
+function Refresh-Path {
+    $env:Path =
+        [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" +
+        [System.Environment]::GetEnvironmentVariable("Path", "User")
+}
+
 # ---------------- Paths ----------------
 $UserHome = [Environment]::GetFolderPath("UserProfile")
 $FlutterHome = Join-Path $UserHome "flutter"
@@ -33,6 +39,7 @@ if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
     }
     Log "Installing Git via Chocolatey..."
     choco install git -y
+    Refresh-Path
 } else {
     Log "Git already installed."
 }
@@ -52,14 +59,28 @@ if (-not (Test-Path "C:\Program Files\Android\Android Studio\bin\studio64.exe"))
 }
 
 # ---------------- Set JAVA_HOME from Android Studio JDK ----------------
-$AndroidStudioPath = "C:\Program Files\Android\Android Studio"
-$JavaHome = Join-Path $AndroidStudioPath "jbr"
+choco install temurin17 -y
+Refresh-Path
 
-# Set JAVA_HOME and update PATH for current session
+Write-Host "[INFO] Installing JDK 17..."
+choco install temurin17 -y
+
+# Refresh PATH so java is visible immediately
+$env:Path =
+    [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" +
+    [System.Environment]::GetEnvironmentVariable("Path","User")
+
+$JavaHome = "C:\Program Files\Eclipse Adoptium\jdk-17"
+
+if (-not (Test-Path $JavaHome)) {
+    throw "JDK not found at $JavaHome"
+}
+
+# Set JAVA_HOME for current session
 $env:JAVA_HOME = $JavaHome
 $env:Path = "$JavaHome\bin;$env:Path"
 
-# Optionally set system-wide environment variables
+# Set system-wide environment variables
 [Environment]::SetEnvironmentVariable("JAVA_HOME", $JavaHome, "Machine")
 [Environment]::SetEnvironmentVariable("ANDROID_SDK_ROOT", $AndroidSdkRoot, "Machine")
 [Environment]::SetEnvironmentVariable("ANDROID_HOME", $AndroidSdkRoot, "Machine")
