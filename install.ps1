@@ -15,19 +15,23 @@ if (-not ([Security.Principal.WindowsPrincipal] `
 # ---------------- Helpers ----------------
 function Log($msg) { Write-Host "[INFO] $msg" -ForegroundColor Cyan }
 function Warn($msg) { Write-Host "[WARN] $msg" -ForegroundColor Yellow }
-function Err($msg) { Write-Host "[ERR] $msg" -ForegroundColor Red; exit 1 }
 
-# ---------------- Check for commands ----------------
+function Refresh-Path {
+    $env:Path =
+        [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" +
+        [System.Environment]::GetEnvironmentVariable("Path", "User")
+}
+
 function Require-Command($cmd) {
     if (-not (Get-Command $cmd -ErrorAction SilentlyContinue)) {
         Err "Missing command: $cmd"
     }
 }
 
-function Refresh-Path {
-    $env:Path =
-        [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" +
-        [System.Environment]::GetEnvironmentVariable("Path", "User")
+function Add-ToPath($value) {
+    if (-not ($env:Path -split ";" | Where-Object { $_ -eq $value })) {
+        $env:Path = "$value;$env:Path"
+    }
 }
 
 # ---------------- Paths ----------------
@@ -37,28 +41,38 @@ $AndroidSdkRoot = Join-Path $UserHome "AppData\Local\Android\Sdk"
 $CmdlineTools = Join-Path $AndroidSdkRoot "cmdline-tools\latest"
 
 # ---------------- Install Git if missing ----------------
-if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
-    Log "Git not found. Installing Git..."
-    # Requires Chocolatey
+$GitCmd = Get-Command git -ErrorAction SilentlyContinue
+
+if (-not $GitCmd) {
+    Log "Git not found. Installing via Chocolatey..."
+
     if (-not (Get-Command choco -ErrorAction SilentlyContinue)) {
-    Log "Installing Chocolatey..."
-    Set-ExecutionPolicy Bypass -Scope Process -Force
-    [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
-    Invoke-Expression ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+        Log "Installing Chocolatey..."
+        Set-ExecutionPolicy Bypass -Scope Process -Force
+        [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor 3072
+        Invoke-Expression ((New-Object Net.WebClient).DownloadString(
+            'https://community.chocolatey.org/install.ps1'))
     }
-    Log "Installing Git via Chocolatey..."
+
     choco install git -y
     Refresh-Path
-} else {
-    Log "Git already installed."
 }
 
-# ---------------- Refresh PowerShell to use Git ----------------
-$GitPath = "C:\Program Files\Git\cmd"
-if (-not ($env:Path -like "*$GitPath*")) {
-    $env:Path += ";$GitPath"
+# Re-detect Git AFTER install
+$GitCmd = Get-Command git -ErrorAction SilentlyContinue
+
+if ($GitCmd) {
+    $GitExe = $GitCmd.Source
+}
+elseif (Test-Path "C:\Program Files\Git\cmd\git.exe") {
+    $GitExe = "C:\ProgramData\chocolatey\bin\git.exe"
+}
+else {
+    Err "Git installation failed. Git executable not found."
 }
 
+Log "Using Git at $GitExe"
+& $GitExe --version || Err "Git verification failed"
 # ---------------- Install Android Studio ----------------
 if (-not (Test-Path "C:\Program Files\Android\Android Studio\bin\studio64.exe")) {
     Log "Installing Android Studio via Chocolatey..."
@@ -67,15 +81,10 @@ if (-not (Test-Path "C:\Program Files\Android\Android Studio\bin\studio64.exe"))
     Log "Android Studio already installed."
 }
 
-# ---------------- Set JAVA_HOME from Android Studio JDK ----------------
+# ---------------- Install JDK 17 ----------------
 Write-Host "[INFO] Installing JDK 17..."
 choco install temurin17 -y
 Refresh-Path
-
-# Refresh PATH so java is visible immediately
-$env:Path =
-    [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" +
-    [System.Environment]::GetEnvironmentVariable("Path","User")
 
 $JavaFolder = Get-ChildItem "C:\Program Files\Eclipse Adoptium" -Directory |
     Where-Object { $_.Name -match '^jdk-17.*' } |
@@ -83,12 +92,10 @@ $JavaFolder = Get-ChildItem "C:\Program Files\Eclipse Adoptium" -Directory |
     Select-Object -First 1
 
 if (-not $JavaFolder) {
-    Err "JDK 17 not found under Eclipse Adoptium. Check if Temurin17 installed correctly."
+    Err "JDK 17 not found. Check Temurin17 installation."
 }
 
 $JavaHome = $JavaFolder.FullName
-
-# Set JAVA_HOME for current session
 $env:JAVA_HOME = $JavaHome
 $env:Path = "$JavaHome\bin;$env:Path"
 
@@ -99,7 +106,7 @@ $env:Path = "$JavaHome\bin;$env:Path"
 
 Write-Host "[INFO] JAVA_HOME set to $JavaHome"
 
-# ---------------- Install Android SDK command-line tools ----------------
+# ---------------- Android SDK Command-line Tools ----------------
 if (-not (Test-Path $CmdlineTools)) {
     Log "Downloading Android command-line tools..."
     $TmpZip = "$env:TEMP\cmdline-tools.zip"
@@ -108,14 +115,11 @@ if (-not (Test-Path $CmdlineTools)) {
     Rename-Item (Join-Path $AndroidSdkRoot "cmdline-tools\cmdline-tools") "latest"
 }
 
-# Add SDK tools to PATH (current session)
 $env:Path = "$CmdlineTools\bin;$AndroidSdkRoot\platform-tools;$env:Path"
-
 Require-Command sdkmanager
 
 # ---------------- Install latest Android SDK ----------------
 Log "Installing Android SDK..."
-# Get latest Android platform
 $LatestPlatform = & sdkmanager --list | Select-String -Pattern 'platforms;android-(\d+)' | ForEach-Object {
     [PSCustomObject]@{
         Text = $_.Matches[0].Value
@@ -123,7 +127,6 @@ $LatestPlatform = & sdkmanager --list | Select-String -Pattern 'platforms;androi
     }
 } | Sort-Object Version -Descending | Select-Object -First 1
 
-# Get latest Build Tools
 $LatestBuildTools = & sdkmanager --list | Select-String -Pattern 'build-tools;([0-9.]+)' | ForEach-Object {
     [PSCustomObject]@{
         Text = $_.Matches[0].Value
@@ -131,35 +134,25 @@ $LatestBuildTools = & sdkmanager --list | Select-String -Pattern 'build-tools;([
     }
 } | Sort-Object -Property @{Expression={$_.VersionParts[0]};Descending=$true}, @{Expression={$_.VersionParts[1]};Descending=$true}, @{Expression={$_.VersionParts[2]};Descending=$true} | Select-Object -First 1
 
-# Install latest packages
 Log "Installing platform-tools, $($LatestPlatform.Text), $($LatestBuildTools.Text)..."
 & sdkmanager "platform-tools" $LatestPlatform.Text $LatestBuildTools.Text
 
-# ---------------- Install Flutter SDK ----------------
-$GitExe = (Get-Command git.exe -ErrorAction SilentlyContinue)?.Source
-if (-not $GitExe) {
-    # fallback if Git not in PATH
-    $GitExe = "C:\Program Files\Git\cmd\git.exe"
-}
-
+# ---------------- Install Flutter ----------------
 if (-not (Test-Path "$FlutterHome\bin\flutter.bat")) {
     Log "Installing Flutter SDK..."
     & $GitExe clone https://github.com/flutter/flutter.git -b stable $FlutterHome
 } else {
-    Log "Flutter already installed at $FlutterHome"
+    Log "Flutter already installed."
 }
 
-# Add Flutter to PATH for this session
 $FlutterExe = Join-Path $FlutterHome "bin\flutter.bat"
-$env:Path = "$FlutterHome\bin;$env:Path"
+Add-ToPath "$FlutterHome\bin"
 
-# Accept Android licenses
-Log "Accepting all Android licenses..."
+# ---------------- Flutter setup ----------------
+Log "Accepting Android licenses..."
 1..20 | ForEach-Object { "y" } | & $FlutterExe doctor --android-licenses
 
-# Flutter config
 & $FlutterExe config --android-sdk $AndroidSdkRoot
 
 Log "Installation completed!"
 Write-Host "Run 'flutter doctor' to verify your setup."
-
